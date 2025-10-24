@@ -28,7 +28,9 @@ if (process.env.NODE_ENV === "production") {
     res.sendFile(path.join(__dirname, "../frontend", "dist", "index.html"));
   });
 }
-server.listen(3001, () => {
+
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
   console.log("server is runnin on part 3001");
   connectDB();
 });
