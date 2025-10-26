@@ -4,6 +4,7 @@ export interface IUser {
   fullName: string;
   profilePic?: string;
   updatedAt: string;
+  unreadCount?: number;
   __v: number;
   _id: string;
 }

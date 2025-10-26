@@ -12,6 +12,7 @@ interface IMessage {
   text?: string;
   image?: string;
   createdAt: string;
+  read?: boolean;
   __v: number;
 }
 
@@ -89,32 +90,79 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
   subscribeToNewMessages: () => {
-    const { selectedUser } = get();
     const { socket } = useAuthStore.getState();
-    if (!selectedUser || !socket) return;
+    if (!socket) return;
 
-    socket.on("newMessage", (newMessage: IMessage) => {
-      const isMessageSentFromSelectedUser =
-        newMessage.senderId === selectedUser._id;
-
-      if (!isMessageSentFromSelectedUser) return;
-
+    socket.on("newMessage", async (newMessage: IMessage) => {
       const audio = new Audio("/sound/notification.mp3");
       audio.currentTime = 0;
       audio.play().catch((err) => {
         console.warn("Audio blocked until user interacts:", err);
       });
 
+      const { selectedUser } = get();
+
+      if (selectedUser && newMessage.senderId === selectedUser._id) {
+        set({ messages: [...get().messages, { ...newMessage, read: true }] });
+        try {
+          await axiosInstance.post(`/messages/read/${newMessage.senderId}`);
+        } catch (err) {
+          console.warn("Failed to mark messages read:", err);
+        }
+        // ensure local unread count is reset
+        set({
+          users: get().users.map((u) =>
+            u._id === newMessage.senderId ? { ...u, unreadCount: 0 } : u
+          ),
+        });
+        return;
+      }
+
       set({
-        messages: [...get().messages, newMessage],
+        users: get().users.map((u) =>
+          u._id === newMessage.senderId
+            ? { ...u, unreadCount: (u.unreadCount || 0) + 1 }
+            : u
+        ),
       });
     });
+
+    // Listen for server notification when messages have been read by the other user
+    socket.on(
+      "messagesRead",
+      (data: { senderId: string; receiverId: string }) => {
+        // server emits to the original sender when their messages have been read
+        const { receiverId } = data;
+        set({
+          users: get().users.map((u) =>
+            u._id === receiverId ? { ...u, unreadCount: 0 } : u
+          ),
+        });
+      }
+    );
   },
   unsubscribeFromNewMessages: () => {
     const { socket } = useAuthStore.getState();
     if (socket) {
       socket.off("newMessage");
+      socket.off("messagesRead");
     }
   },
-  setSelectedUser: (user) => set({ selectedUser: user }),
+  setSelectedUser: (user) => {
+    set({ selectedUser: user });
+    if (user && user._id) {
+      axiosInstance
+        .post(`/messages/read/${user._id}`)
+        .then(() => {
+          set({
+            users: get().users.map((u) =>
+              u._id === user._id ? { ...u, unreadCount: 0 } : u
+            ),
+          });
+        })
+        .catch((err) => {
+          console.warn("Failed to mark messages read:", err);
+        });
+    }
+  },
 }));
