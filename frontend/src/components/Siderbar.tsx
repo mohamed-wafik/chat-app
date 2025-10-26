@@ -75,8 +75,15 @@ const Sidebar = () => {
             </div>
 
             {/* User info - only visible on larger screens */}
-            <div className="hidden lg:block text-left min-w-0">
-              <div className="font-medium truncate">{user.fullName}</div>
+            <div className="hidden lg:block text-left min-w-0 flex-1">
+              <div className="font-medium truncate flex items-center justify-between">
+                <span>{user.fullName}</span>
+                {user.unreadCount ? (
+                  <span className="bg-primary text-white rounded-full px-2 py-0.5 text-xs">
+                    {user.unreadCount}
+                  </span>
+                ) : null}
+              </div>
               <div className="text-sm text-zinc-400">
                 {onlineUsers.includes(user._id) ? "Online" : "Offline"}
               </div>
