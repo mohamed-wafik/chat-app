@@ -4,17 +4,47 @@ import Message from "../models/message.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { io } from "../lib/socket.js";
 import { getRecevierSocketId } from "../lib/socket.js";
+
 export const getUsersForSidebar = asyncWrapper(async (req, res, next) => {
   const loggedInUserId = req.user._id;
-  const fitleredUsers = await User.find({
+
+  const filteredUsers = await User.find({
     _id: { $ne: loggedInUserId },
   }).select("-password");
-  return res.json({
-    data: fitleredUsers,
-    message: "get User For Sidebar Successfully!",
+
+  const unreadCounts = await Message.aggregate([
+    {
+      $match: {
+        receiverId: loggedInUserId,
+        read: false,
+      },
+    },
+    {
+      $group: {
+        _id: "$senderId",
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const unreadMap = new Map(
+    unreadCounts.map((u) => [u._id.toString(), u.count])
+  );
+
+  const usersWithUnreadCounts = filteredUsers.map((user) => ({
+    ...user.toObject(),
+    unreadCount: unreadMap.get(user._id.toString()) || 0,
+  }));
+
+  usersWithUnreadCounts.sort((a, b) => b.unreadCount - a.unreadCount);
+
+  return res.status(200).json({
+    data: usersWithUnreadCounts,
+    message: "Users for sidebar fetched successfully!",
     status: 200,
   });
 });
+
 export const getMessages = asyncWrapper(async (req, res, next) => {
   const loggedInUserId = req.user._id;
   const { id: receiverId } = req.params;
@@ -69,5 +99,26 @@ export const sendMessage = asyncWrapper(async (req, res, next) => {
     data: savedMessage,
     message: "Message sent successfully!",
     status: 201,
+  });
+});
+export const markMessagesAsRead = asyncWrapper(async (req, res, next) => {
+  const loggedInUserId = req.user._id;
+  const { id: senderId } = req.params;
+  await Message.updateMany(
+    { senderId, receiverId: loggedInUserId, read: false },
+    { $set: { read: true } }
+  );
+
+  const receiverIdSocketId = getRecevierSocketId(senderId);
+  if (receiverIdSocketId) {
+    io.to(receiverIdSocketId).emit("messagesRead", {
+      senderId,
+      receiverId: loggedInUserId,
+    });
+  }
+  return res.status(200).json({
+    data: null,
+    message: "Messages marked as read successfully!",
+    status: 200,
   });
 });
